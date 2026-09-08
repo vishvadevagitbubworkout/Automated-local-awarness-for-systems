@@ -1,8 +1,17 @@
 import json
+import re
 
 from pydantic import ValidationError
 
-from app.planner.schemas import TaskPlan
+from app.planner.schemas import PlannerIntent, TaskPlan
+
+
+CONFIDENCE_THRESHOLD = 0.70
+_WINDOWS_ABSOLUTE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
+_SHELL_COMMAND = re.compile(
+    r"(^|\s)(cmd(?:\.exe)?|powershell(?:\.exe)?|bash|sh|rm|del|erase|python(?:\.exe)?|git)(\s|$)",
+    re.I,
+)
 
 
 class PlanParsingError(ValueError):
@@ -45,5 +54,21 @@ def parse_task_plan(raw_response: str) -> TaskPlan:
             raise PlanParsingError("A planning step has no agent.")
         if not step.operation.strip():
             raise PlanParsingError("A planning step has no operation.")
+        if step.resource and (
+            step.resource.startswith("/")
+            or step.resource.startswith("\\\\")
+            or _WINDOWS_ABSOLUTE_PATH.match(step.resource)
+        ):
+            raise PlanParsingError(
+                "The planning response contains an absolute filesystem path."
+            )
+        if _SHELL_COMMAND.search(step.operation) or _SHELL_COMMAND.search(
+            step.resource or ""
+        ):
+            raise PlanParsingError(
+                "The planning response contains a raw shell command."
+            )
+        if step.confidence is not None and step.confidence < CONFIDENCE_THRESHOLD:
+            step.intent = PlannerIntent.ASK_CLARIFICATION
 
     return plan

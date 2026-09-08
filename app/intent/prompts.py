@@ -22,6 +22,10 @@ You receive:
 Determine whether every planned step contributes directly to fulfilling the
 user's request. Inspect the agent, operation, resource, and parameters of every
 step. Identify unrelated or unjustified steps by their step_id.
+Compare the requested resource pattern and named entities with the resources
+and entities in each step. Treat an unexplained broadening, such as changing a
+request to find invoices into a plan over an entire directory, as a possible
+mismatch requiring careful explanation.
 
 Legitimate multi-step and multi-agent plans are allowed when all steps
 contribute to the same requested objective. Do not reject a plan merely because

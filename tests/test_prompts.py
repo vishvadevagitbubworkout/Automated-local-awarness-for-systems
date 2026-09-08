@@ -15,3 +15,5 @@ def test_planner_prompt_defines_json_schema_and_security_boundary():
     assert "Never make authorization decisions" in prompt
     assert "Never invent permissions" in prompt
     assert "Read report.pdf from Documents" in prompt
+    assert "ASK_CLARIFICATION" in prompt
+    assert "confidence is below 0.70" in prompt

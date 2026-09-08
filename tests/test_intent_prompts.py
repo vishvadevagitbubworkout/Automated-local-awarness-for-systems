@@ -23,6 +23,7 @@ def test_intent_prompt_contains_plan_and_m2_boundary():
     assert "file_manager" in prompt
     assert "create_file" in prompt
     assert "task-intent consistency" in prompt
+    assert "requested resource pattern" in prompt
     assert "Return exactly one valid JSON object" in prompt
     assert "Do not make authorization decisions" in prompt
     assert "Do not execute actions" in prompt
