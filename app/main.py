@@ -1,3 +1,6 @@
+from app.intent.parsing import IntentParsingError
+from app.intent.schemas import IntentCheckResult
+from app.intent.validator import IntentValidator
 from app.planner.ollama_client import OllamaError
 from app.planner.planner import Planner
 from app.planner.parsing import PlanParsingError
@@ -33,18 +36,36 @@ def format_plan(plan: TaskPlan) -> str:
 	return "\n".join(lines).rstrip()
 
 
+def format_intent_result(result: IntentCheckResult) -> str:
+	status = "CONSISTENT" if result.consistent else "INCONSISTENT"
+	lines = [
+		"Intent Validation:",
+		"",
+		f"Status: {status}",
+		"",
+		"Reason:",
+		result.reason,
+	]
+	if result.mismatched_steps:
+		lines.extend(["", "Mismatched Steps:", *result.mismatched_steps])
+	return "\n".join(lines)
+
+
 def main() -> int:
 	print("# LOCAL-FIRST AI AUTOMATION")
 	user_request = input("Task:\n> ").strip()
 
 	try:
 		plan = Planner().create_plan(user_request)
-	except (OllamaError, PlanParsingError, ValueError) as error:
+		intent_result = IntentValidator().validate(plan)
+	except (OllamaError, PlanParsingError, IntentParsingError, ValueError) as error:
 		print(f"Planning failed: {error}")
 		return 1
 
 	print()
 	print(format_plan(plan))
+	print()
+	print(format_intent_result(intent_result))
 	return 0
 
 
