@@ -61,6 +61,16 @@ def test_generate_rejects_empty_response(monkeypatch):
         OllamaClient().generate("Plan this task")
 
 
+def test_generate_rejects_non_object_response(monkeypatch):
+    monkeypatch.setattr(
+        "app.planner.ollama_client.urlopen",
+        lambda request, timeout: FakeResponse(b"[]"),
+    )
+
+    with pytest.raises(OllamaResponseError, match="non-object response"):
+        OllamaClient().generate("Plan this task")
+
+
 def test_generate_reports_missing_model(monkeypatch):
     def fake_urlopen(request, timeout):
         raise HTTPError(request.full_url, 404, "not found", {}, None)

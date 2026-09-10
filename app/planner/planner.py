@@ -76,7 +76,12 @@ class Planner:
 		prompt = build_planner_prompt(user_request)
 		raw_response = self.ollama_client.generate(prompt)
 		try:
-			return parse_task_plan(raw_response, require_proposal_fields=True)
+			plan = parse_task_plan(raw_response, require_proposal_fields=True)
+			if plan.original_request != user_request:
+				raise PlanParsingError(
+					"The planning response changed the original user request."
+				)
+			return plan
 		except PlanParsingError as error:
 			unsupported_intent = self._detect_unsupported_intent(raw_response)
 			if unsupported_intent is not None:

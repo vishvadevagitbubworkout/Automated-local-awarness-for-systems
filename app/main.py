@@ -1,6 +1,10 @@
+from app.capabilities.registry import CapabilityRegistryError
+from app.capabilities.templates import ResourceType
 from app.intent.parsing import IntentParsingError
 from app.intent.schemas import IntentCheckResult
 from app.intent.validator import IntentValidator
+from app.permissions.authorization import TaskAuthorizationManager
+from app.permissions.policies import PermissionScope, PermissionScopeKind
 from app.planner.ollama_client import OllamaError
 from app.planner.planner import Planner
 from app.planner.parsing import PlanParsingError
@@ -56,6 +60,24 @@ def format_intent_result(result: IntentCheckResult) -> str:
 	return "\n".join(lines)
 
 
+def format_capabilities(capabilities) -> str:
+	lines = ["Approved Capabilities:", ""]
+	for index, capability in enumerate(capabilities, start=1):
+		lines.append(f"{index}. {capability.capability_id}")
+	return "\n".join(lines)
+
+
+def format_authorization_results(results) -> str:
+	lines = ["Task Authorization:", ""]
+	for result in results:
+		lines.append(
+			f"{result.task_id}/{result.step_id}: {result.decision.value} "
+			f"({result.capability_id or 'unresolved'})"
+		)
+		lines.append(f"Reason: {result.reason}")
+	return "\n".join(lines)
+
+
 def main() -> int:
 	print("# LOCAL-FIRST AI AUTOMATION")
 	user_request = input("Task:\n> ").strip()
@@ -63,7 +85,27 @@ def main() -> int:
 	try:
 		plan = Planner().create_plan(user_request)
 		intent_result = IntentValidator().validate(plan)
-	except (OllamaError, PlanParsingError, IntentParsingError, ValueError) as error:
+		scopes = {
+			step.step_id: PermissionScope(
+				resource_type=ResourceType.FILE,
+				kind=PermissionScopeKind.TASK,
+				selector="current_task.resource",
+				resource_id=step.resource,
+			)
+			for step in plan.steps
+		}
+		authorization_results = TaskAuthorizationManager().authorize_plan(
+			plan,
+			intent_result,
+			scopes,
+		)
+	except (
+		OllamaError,
+		PlanParsingError,
+		IntentParsingError,
+		CapabilityRegistryError,
+		ValueError,
+	) as error:
 		print(f"Planning failed: {error}")
 		return 1
 
@@ -71,6 +113,8 @@ def main() -> int:
 	print(format_plan(plan))
 	print()
 	print(format_intent_result(intent_result))
+	print()
+	print(format_authorization_results(authorization_results))
 	return 0
 
 

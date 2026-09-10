@@ -135,6 +135,14 @@ def test_malformed_model_json_is_controlled_error():
         IntentValidator(FakeOllamaClient("{this is not valid json")).validate(plan)
 
 
+def test_unknown_mismatched_step_id_is_rejected():
+    plan = make_plan(make_step("step_001", "file_manager", "create_file", "rest.pdf"))
+    response = make_result(False, "The plan needs review.", ["step_999"])
+
+    with pytest.raises(ValueError, match="not present in the TaskPlan"):
+        IntentValidator(FakeOllamaClient(response)).validate(plan)
+
+
 def test_dangerous_operations_are_inspected_as_data_only():
     plan = TaskPlan(
         task_id="task_001",
@@ -186,6 +194,50 @@ def test_recipient_mismatch_is_marked_inconsistent():
                 agent="email_agent",
                 operation="EMAIL_SEND",
                 resource="bob@example.com",
+            )
+        ],
+    )
+    client = FakeOllamaClient(make_result(True, "Looks consistent.", []))
+
+    result = IntentValidator(client).validate(plan)
+
+    assert result.consistent is False
+    assert result.mismatched_steps == ["step_001"]
+
+
+def test_structured_resource_mismatch_overrides_model_consistency():
+    plan = TaskPlan(
+        task_id="task_001",
+        original_request="Read invoice.pdf.",
+        steps=[
+            PlanStep(
+                step_id="step_001",
+                agent="file_manager",
+                operation="READ",
+                resource="other.pdf",
+            )
+        ],
+    )
+    client = FakeOllamaClient(make_result(True, "Looks consistent.", []))
+
+    result = IntentValidator(client).validate(plan)
+
+    assert result.consistent is False
+    assert result.mismatched_steps == ["step_001"]
+
+
+def test_template_and_intent_operation_mismatch_overrides_model_consistency():
+    plan = TaskPlan(
+        task_id="task_001",
+        original_request="Read invoice.pdf.",
+        steps=[
+            PlanStep(
+                step_id="step_001",
+                agent="file_manager",
+                operation="DELETE",
+                resource="invoice.pdf",
+                template="FILE_READ",
+                intent="READ",
             )
         ],
     )

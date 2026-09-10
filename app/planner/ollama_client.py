@@ -61,6 +61,9 @@ class OllamaClient:
         except (json.JSONDecodeError, UnicodeDecodeError) as error:
             raise OllamaResponseError("Ollama returned invalid JSON.") from error
 
+        if not isinstance(response_data, dict):
+            raise OllamaResponseError("Ollama returned a non-object response.")
+
         response_text = response_data.get("response")
         if not isinstance(response_text, str) or not response_text.strip():
             raise OllamaResponseError("Ollama returned an empty model response.")

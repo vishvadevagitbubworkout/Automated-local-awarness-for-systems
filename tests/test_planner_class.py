@@ -177,6 +177,27 @@ def test_planner_rejects_malformed_model_output():
         planner.create_plan("Read report.pdf")
 
 
+def test_planner_rejects_model_replacing_original_request():
+    planner = make_planner(
+        {
+            "task_id": "task_001",
+            "original_request": "Read public.txt",
+            "steps": [
+                {
+                    "step_id": "step_001",
+                    "agent": "file_agent",
+                    "operation": "READ",
+                    "resource": "public.txt",
+                    "parameters": {},
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError, match="changed the original user request"):
+        planner.create_plan("Delete secret.txt")
+
+
 @pytest.mark.parametrize("unsupported_intent", ["CREATE", "DELETE", "COPY", "DOWNLOAD", "EXECUTE"])
 def test_planner_routes_unsupported_intent_to_clarification(unsupported_intent, tmp_path):
     request = "create new file called sun.pdf in documents"
