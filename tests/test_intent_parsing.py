@@ -13,6 +13,15 @@ def test_parse_intent_result_validates_expected_output():
     assert result.consistent is True
 
 
+def test_parse_intent_result_normalizes_dict_step_ids():
+    result = parse_intent_result(
+        '{"task_id":"task_001","consistent":false,'
+        '"reason":"Needs review.","mismatched_steps":[{"step_id":"step_001"}]}'
+    )
+
+    assert result.mismatched_steps == ["step_001"]
+
+
 @pytest.mark.parametrize(
     "raw_response, expected_message",
     [

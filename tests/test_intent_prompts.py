@@ -22,6 +22,9 @@ def test_intent_prompt_contains_plan_and_m2_boundary():
     assert "Create rest.pdf in Documents." in prompt
     assert "file_manager" in prompt
     assert "create_file" in prompt
+    assert "opaque_file_refs" in prompt
+    assert "template" in prompt
+    assert "description" in prompt
     assert "task-intent consistency" in prompt
     assert "requested resource pattern" in prompt
     assert "Return exactly one valid JSON object" in prompt

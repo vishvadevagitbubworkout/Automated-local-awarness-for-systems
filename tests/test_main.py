@@ -24,6 +24,7 @@ def test_format_plan_displays_plan_without_execution():
     assert "Generated Plan:" in output
     assert "Agent: file_agent" in output
     assert "Operation: READ" in output
+    assert "Template: legacy/unspecified" in output
     assert "location: Documents" in output
 
 

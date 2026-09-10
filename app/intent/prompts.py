@@ -20,8 +20,9 @@ You receive:
 2. A generated execution plan from M1.
 
 Determine whether every planned step contributes directly to fulfilling the
-user's request. Inspect the agent, operation, resource, and parameters of every
-step. Identify unrelated or unjustified steps by their step_id.
+user's request. Inspect the agent, template, intent, operation, resource,
+opaque_file_refs, parameters, and description of every step. Identify unrelated
+or unjustified steps by their step_id.
 Compare the requested resource pattern and named entities with the resources
 and entities in each step. Treat an unexplained broadening, such as changing a
 request to find invoices into a plan over an entire directory, as a possible

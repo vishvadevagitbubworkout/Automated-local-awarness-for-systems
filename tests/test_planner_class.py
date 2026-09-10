@@ -3,7 +3,7 @@ import json
 import pytest
 
 from app.planner.planner import Planner
-from app.planner.schemas import TaskPlan
+from app.planner.schemas import PlannerIntent, TaskPlan
 
 
 class FakeOllamaClient:
@@ -13,6 +13,17 @@ class FakeOllamaClient:
 
     def generate(self, prompt):
         self.prompts.append(prompt)
+        if self.response.startswith("{"):
+            payload = json.loads(self.response)
+            for step in payload.get("steps", []):
+                operation = step.get("operation", "")
+                step.setdefault("template", "FILE_READ")
+                step.setdefault("intent", "READ")
+                step.setdefault("opaque_file_refs", [])
+                step.setdefault("parameters", {})
+                step.setdefault("description", operation or "planned action")
+                step.setdefault("confidence", 1.0)
+            self.response = json.dumps(payload)
         return self.response
 
 
@@ -164,6 +175,40 @@ def test_planner_rejects_malformed_model_output():
 
     with pytest.raises(ValueError, match="invalid JSON"):
         planner.create_plan("Read report.pdf")
+
+
+@pytest.mark.parametrize("unsupported_intent", ["CREATE", "DELETE", "COPY", "DOWNLOAD", "EXECUTE"])
+def test_planner_routes_unsupported_intent_to_clarification(unsupported_intent, tmp_path):
+    request = "create new file called sun.pdf in documents"
+    response = json.dumps(
+        {
+            "task_id": "task_001",
+            "original_request": request,
+            "steps": [
+                {
+                    "step_id": "step_001",
+                    "agent": "file_agent",
+                    "operation": "WRITE",
+                    "resource": "sun.pdf",
+                    "intent": unsupported_intent,
+                    "template": "FILE_READ",
+                    "opaque_file_refs": [],
+                    "parameters": {"location": "Documents"},
+                    "description": "Create the requested file.",
+                    "confidence": 0.95,
+                }
+            ],
+        }
+    )
+    planner = Planner(FakeOllamaClient(response))
+
+    plan = planner.create_plan(request)
+
+    assert isinstance(plan, TaskPlan)
+    assert plan.steps[0].intent == PlannerIntent.ASK_CLARIFICATION
+    assert plan.steps[0].confidence == 0.0
+    assert "unsupported" in plan.steps[0].description.lower()
+    assert not (tmp_path / "sun.pdf").exists()
 
 
 def test_planner_describes_deletion_without_executing_it(tmp_path):

@@ -153,3 +153,45 @@ def test_dangerous_operations_are_inspected_as_data_only():
     assert "delete_file" in client.prompts[0]
     assert "send_email" in client.prompts[0]
     assert "open_url" in client.prompts[0]
+
+
+def test_resource_scope_broadening_is_marked_inconsistent():
+    plan = TaskPlan(
+        task_id="task_001",
+        original_request="Read invoice.pdf.",
+        steps=[
+            PlanStep(
+                step_id="step_001",
+                agent="file_manager",
+                operation="READ",
+                resource="entire Documents directory",
+            )
+        ],
+    )
+    client = FakeOllamaClient(make_result(True, "Looks consistent.", []))
+
+    result = IntentValidator(client).validate(plan)
+
+    assert result.consistent is False
+    assert result.mismatched_steps == ["step_001"]
+
+
+def test_recipient_mismatch_is_marked_inconsistent():
+    plan = TaskPlan(
+        task_id="task_001",
+        original_request="Send this report to alice@example.com.",
+        steps=[
+            PlanStep(
+                step_id="step_001",
+                agent="email_agent",
+                operation="EMAIL_SEND",
+                resource="bob@example.com",
+            )
+        ],
+    )
+    client = FakeOllamaClient(make_result(True, "Looks consistent.", []))
+
+    result = IntentValidator(client).validate(plan)
+
+    assert result.consistent is False
+    assert result.mismatched_steps == ["step_001"]

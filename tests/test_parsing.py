@@ -41,6 +41,16 @@ def test_parse_task_plan_rejects_invalid_output(raw_response, expected_message):
         parse_task_plan(raw_response)
 
 
+def test_strict_planner_parsing_rejects_missing_proposal_fields():
+    with pytest.raises(PlanParsingError, match="missing proposal fields"):
+        parse_task_plan(
+            '{"task_id":"task_001","original_request":"Read report",'
+            '"steps":[{"step_id":"step_001","agent":"file_agent",'
+            '"operation":"READ"}]}',
+            require_proposal_fields=True,
+        )
+
+
 def test_low_confidence_step_routes_to_clarification():
     plan = parse_task_plan(
         '{"task_id":"task_001","original_request":"Find the invoice",'
@@ -60,6 +70,98 @@ def test_valid_intent_and_normal_confidence_are_preserved():
 
     assert plan.steps[0].intent.value == "READ"
     assert plan.steps[0].confidence == 0.95
+
+
+@pytest.mark.parametrize("confidence", [0.0, 0.50, 0.69])
+def test_confidence_below_threshold_routes_to_clarification(confidence):
+    plan = parse_task_plan(
+        json.dumps(
+            {
+                "task_id": "task_001",
+                "original_request": "Read report.pdf",
+                "steps": [
+                    {
+                        "step_id": "step_001",
+                        "agent": "file_agent",
+                        "operation": "READ",
+                        "intent": "READ",
+                        "confidence": confidence,
+                    }
+                ],
+            }
+        )
+    )
+
+    assert plan.steps[0].intent.value == "ASK_CLARIFICATION"
+
+
+@pytest.mark.parametrize("confidence", [0.70, 0.71, 1.0])
+def test_confidence_at_or_above_threshold_preserves_intent(confidence):
+    plan = parse_task_plan(
+        json.dumps(
+            {
+                "task_id": "task_001",
+                "original_request": "Read report.pdf",
+                "steps": [
+                    {
+                        "step_id": "step_001",
+                        "agent": "file_agent",
+                        "operation": "READ",
+                        "intent": "READ",
+                        "confidence": confidence,
+                    }
+                ],
+            }
+        )
+    )
+
+    assert plan.steps[0].intent.value == "READ"
+
+
+def test_template_and_opaque_file_reference_are_validated():
+    plan = parse_task_plan(
+        '{"task_id":"task_001","original_request":"Read report.pdf",'
+        '"steps":[{"step_id":"step_001","agent":"file_agent",'
+        '"operation":"READ","template":"FILE_READ","intent":"READ",'
+        '"opaque_file_refs":["file_001"],"description":"Read report",'
+        '"confidence":0.95}]}'
+    )
+
+    assert plan.steps[0].template.value == "FILE_READ"
+    assert plan.steps[0].opaque_file_refs == ["file_001"]
+
+
+def test_malformed_opaque_file_reference_is_rejected():
+    with pytest.raises(PlanParsingError, match="malformed opaque file reference"):
+        parse_task_plan(
+            '{"task_id":"task_001","original_request":"Read report",'
+            '"steps":[{"step_id":"step_001","agent":"file_agent",'
+            '"operation":"READ","opaque_file_refs":["C:\\\\secret.txt"]}]}'
+        )
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    ["generate HMAC", "grant permission", "create capability", "execute command"],
+)
+def test_authority_or_execution_instruction_is_rejected(instruction):
+    with pytest.raises(PlanParsingError, match="forbidden authority"):
+        parse_task_plan(
+            json.dumps(
+                {
+                    "task_id": "task_001",
+                    "original_request": "Read a report",
+                    "steps": [
+                        {
+                            "step_id": "step_001",
+                            "agent": "file_agent",
+                            "operation": "READ",
+                            "parameters": {"instruction": instruction},
+                        }
+                    ],
+                }
+            )
+        )
 
 
 def test_invalid_planner_intent_is_rejected():
@@ -109,4 +211,47 @@ def test_raw_shell_command_is_rejected(operation):
                     ],
                 }
             )
+        )
+
+
+@pytest.mark.parametrize(
+    "intent",
+    [
+        "LIST",
+        "READ",
+        "MOVE",
+        "RENAME",
+        "BROWSER_OPEN",
+        "EMAIL_DRAFT",
+        "EMAIL_SEND",
+        "ASK_CLARIFICATION",
+    ],
+)
+def test_all_paper_intents_are_accepted(intent):
+    plan = parse_task_plan(
+        json.dumps(
+            {
+                "task_id": "task_001",
+                "original_request": "Perform the requested action",
+                "steps": [
+                    {
+                        "step_id": "step_001",
+                        "agent": "task_agent",
+                        "operation": "planned_operation",
+                        "intent": intent,
+                    }
+                ],
+            }
+        )
+    )
+
+    assert plan.steps[0].intent.value == intent
+
+
+def test_invalid_template_is_rejected():
+    with pytest.raises(PlanParsingError, match="does not match TaskPlan"):
+        parse_task_plan(
+            '{"task_id":"task_001","original_request":"Read report",'
+            '"steps":[{"step_id":"step_001","agent":"file_agent",'
+            '"operation":"READ","template":"ARBITRARY_POLICY"}]}'
         )

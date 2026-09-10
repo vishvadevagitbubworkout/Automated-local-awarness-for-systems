@@ -1,8 +1,45 @@
+import re
+
 from app.intent.parsing import parse_intent_result
 from app.intent.prompts import build_intent_prompt
 from app.intent.schemas import IntentCheckResult
 from app.planner.ollama_client import OllamaClient
-from app.planner.schemas import TaskPlan
+from app.planner.schemas import PlannerIntent, TaskPlan
+
+
+_FILE_NAME = re.compile(r"\b[\w.-]+\.(?:pdf|docx?|xlsx?|txt)\b", re.I)
+_EMAIL = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b", re.I)
+_BROAD_SCOPE = re.compile(
+    r"\b(?:all|entire|whole)\s+(?:files?|documents?|directory|folder)\b",
+    re.I,
+)
+
+
+def _deterministic_mismatches(task_plan: TaskPlan) -> list[str]:
+    request = task_plan.original_request
+    requested_files = {match.lower() for match in _FILE_NAME.findall(request)}
+    requested_recipients = {match.lower() for match in _EMAIL.findall(request)}
+    mismatches = []
+
+    for step in task_plan.steps:
+        step_text = " ".join(
+            str(value)
+            for value in (
+                step.resource,
+                step.description,
+                step.parameters,
+            )
+            if value is not None
+        )
+        if requested_files and _BROAD_SCOPE.search(step_text):
+            mismatches.append(step.step_id)
+            continue
+        step_recipients = {match.lower() for match in _EMAIL.findall(step_text)}
+        if requested_recipients and step_recipients:
+            if not step_recipients.intersection(requested_recipients):
+                mismatches.append(step.step_id)
+
+    return mismatches
 
 
 class IntentValidator:
@@ -38,10 +75,42 @@ class IntentValidator:
                 mismatched_steps=[],
             )
 
+        if any(step.intent == PlannerIntent.ASK_CLARIFICATION for step in task_plan.steps):
+            return IntentCheckResult(
+                task_id=task_plan.task_id,
+                consistent=False,
+                reason=(
+                    "The planner requested clarification because the supported intent vocabulary "
+                    "does not include the requested operation."
+                ),
+                mismatched_steps=[
+                    step.step_id
+                    for step in task_plan.steps
+                    if step.intent == PlannerIntent.ASK_CLARIFICATION
+                ],
+            )
+
         raw_response = self.ollama_client.generate(build_intent_prompt(task_plan))
         result = parse_intent_result(raw_response)
         if result.task_id != task_plan.task_id:
             raise ValueError(
                 "The intent response task ID does not match the supplied TaskPlan."
             )
+        deterministic_mismatches = _deterministic_mismatches(task_plan)
+        if deterministic_mismatches:
+            merged_steps = list(
+                dict.fromkeys(result.mismatched_steps + deterministic_mismatches)
+            )
+            if result.consistent:
+                return result.model_copy(
+                    update={
+                        "consistent": False,
+                        "reason": (
+                            "The plan broadens or changes a resource/entity named "
+                            "in the user's request."
+                        ),
+                        "mismatched_steps": merged_steps,
+                    }
+                )
+            return result.model_copy(update={"mismatched_steps": merged_steps})
         return result

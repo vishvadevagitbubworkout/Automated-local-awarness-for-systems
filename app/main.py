@@ -21,7 +21,12 @@ def format_plan(plan: TaskPlan) -> str:
 				f"Step {index}",
 				f"Agent: {step.agent}",
 				f"Operation: {step.operation}",
+				f"Template: {step.template.value if step.template else 'legacy/unspecified'}",
+				f"Intent: {step.intent.value if step.intent else 'legacy/unspecified'}",
 				f"Resource: {step.resource}",
+				f"Opaque File Refs: {step.opaque_file_refs}",
+				f"Description: {step.description or 'legacy/unspecified'}",
+				f"Confidence: {step.confidence if step.confidence is not None else 'legacy/unspecified'}",
 				"Parameters:",
 			]
 		)
