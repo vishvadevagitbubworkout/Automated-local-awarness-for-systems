@@ -1,22 +1,23 @@
 import pytest
 
 from app.capabilities.templates import ResourceType
-from app.intent.schemas import IntentCheckResult, ValidatedIntentResult, _M2_ISSUER
+from app.intent.schemas import IntentCheckResult, ValidatedIntentResult
 from app.permissions.authorization import AuthorizationResult, TaskAuthorizationManager
 from app.permissions.policies import PermissionDecision, PermissionScope, PermissionScopeKind
 from app.planner.schemas import PlanStep, TaskPlan
+from tests.support import validated_intent_for_plan
 
 
-def task_scope(selector="current_task.resource"):
+def task_scope(selector="current_task.resource", resource_id="report.pdf"):
     return PermissionScope(
         resource_type=ResourceType.FILE,
         kind=PermissionScopeKind.TASK,
         selector=selector,
-        resource_id="report.pdf",
+        resource_id=resource_id,
     )
 
 
-def make_plan(task_id="task_001", operation="READ", step_id="step_001"):
+def make_plan(task_id="task_001", operation="READ", step_id="step_001", resource="report.pdf"):
     return TaskPlan(
         task_id=task_id,
         original_request="Read report.pdf",
@@ -25,7 +26,7 @@ def make_plan(task_id="task_001", operation="READ", step_id="step_001"):
                 step_id=step_id,
                 agent="file_manager",
                 operation=operation,
-                resource="report.pdf",
+                resource=resource,
                 parameters={"mode": operation.lower()},
                 template="FILE_READ",
                 intent="READ",
@@ -36,12 +37,12 @@ def make_plan(task_id="task_001", operation="READ", step_id="step_001"):
 
 def make_result(task_id="task_001", consistent=True, mismatched_steps=None, plan=None):
     plan = plan or make_plan(task_id=task_id)
-    return ValidatedIntentResult._from_validator(IntentCheckResult(
-        task_id=task_id,
+    return validated_intent_for_plan(
+        plan,
         consistent=consistent,
         reason="The plan matches the request." if consistent else "The plan is inconsistent.",
         mismatched_steps=mismatched_steps or [],
-    ), plan, _M2_ISSUER)
+    )
 
 
 def test_valid_m2_m3_m4_flow_allows_for_task_and_step():
@@ -92,23 +93,34 @@ def test_forged_base_intent_result_is_denied():
 
 
 def test_untrusted_caller_cannot_issue_validated_intent_artifact():
-    with pytest.raises(TypeError, match="Only the M2 validator"):
-        ValidatedIntentResult._from_validator(
-            IntentCheckResult(
-                task_id="task_001",
-                consistent=True,
-                reason="caller assertion",
-                mismatched_steps=[],
-            ),
-            make_plan(),
-            object(),
-        )
+    forged = ValidatedIntentResult(
+        task_id="task_001",
+        consistent=True,
+        reason="caller assertion",
+        mismatched_steps=[],
+    )
+
+    assert not forged.is_m2_validated()
+
+    result = TaskAuthorizationManager().authorize_step(
+        make_plan(),
+        forged,
+        "step_001",
+        scope=task_scope(),
+    )
+
+    assert result.decision == PermissionDecision.DENY
 
 
 def test_missing_task_id_is_denied():
     result = TaskAuthorizationManager().authorize_step(
         make_plan(task_id=""),
-        make_result(task_id=""),
+        IntentCheckResult(
+            task_id="",
+            consistent=True,
+            reason="caller supplied empty task identity",
+            mismatched_steps=[],
+        ),
         "step_001",
         scope=task_scope(),
     )
@@ -220,7 +232,7 @@ def test_authorization_result_cannot_be_reused_for_another_task_or_step():
 def test_plan_authorizes_steps_independently():
     plan = TaskPlan(
         task_id="task_001",
-        original_request="Read and format report.pdf",
+        original_request="Read report.pdf",
         steps=[
             PlanStep(
                 step_id="step_read",
@@ -232,11 +244,11 @@ def test_plan_authorizes_steps_independently():
                 intent="READ",
             ),
             PlanStep(
-                step_id="step_format",
+                step_id="step_bad_params",
                 agent="file_manager",
-                operation="FORMAT",
+                operation="READ",
                 resource="report.pdf",
-                parameters={"mode": "format"},
+                parameters={"mode": "invalid"},
                 template="FILE_READ",
                 intent="READ",
             ),
@@ -244,15 +256,15 @@ def test_plan_authorizes_steps_independently():
     )
     results = TaskAuthorizationManager().authorize_plan(
         plan,
-        make_result(plan=plan),
-        {"step_read": task_scope(), "step_format": task_scope()},
+        validated_intent_for_plan(plan),
+        {"step_read": task_scope(), "step_bad_params": task_scope()},
     )
 
     assert [result.decision for result in results] == [
         PermissionDecision.ALLOW,
         PermissionDecision.DENY,
     ]
-    assert [result.step_id for result in results] == ["step_read", "step_format"]
+    assert [result.step_id for result in results] == ["step_read", "step_bad_params"]
 
 
 def test_authorization_result_is_immutable_and_data_only():

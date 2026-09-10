@@ -3,14 +3,30 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, StrictBool, StrictStr
 
-_M2_VALIDATION_TOKEN = object()
-_M2_ISSUER = object()
-
 
 def _plan_digest(task_plan) -> str:
     payload = task_plan.model_dump(mode="json")
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _create_m2_validation_trust_boundary():
+    """Closure-scoped issuance authority for M2 validated intent results."""
+    _validation_token = object()
+
+    def issue(result: "IntentCheckResult", task_plan) -> "ValidatedIntentResult":
+        validated = ValidatedIntentResult.model_validate(result.model_dump())
+        validated._validation_token = _validation_token
+        validated._validated_plan_digest = _plan_digest(task_plan)
+        return validated
+
+    def is_m2_validated(result: "ValidatedIntentResult") -> bool:
+        return getattr(result, "_validation_token", None) is _validation_token
+
+    return issue, is_m2_validated
+
+
+_issue_validated_intent, _validated_intent_is_m2_validated = _create_m2_validation_trust_boundary()
 
 
 class IntentCheckResult(BaseModel):
@@ -28,22 +44,8 @@ class ValidatedIntentResult(IntentCheckResult):
     _validation_token: object | None = PrivateAttr(default=None)
     _validated_plan_digest: str | None = PrivateAttr(default=None)
 
-    @classmethod
-    def _from_validator(
-        cls,
-        result: IntentCheckResult,
-        task_plan,
-        issuer,
-    ) -> "ValidatedIntentResult":
-        if issuer is not _M2_ISSUER:
-            raise TypeError("Only the M2 validator may issue a validated intent result.")
-        validated = cls.model_validate(result.model_dump())
-        validated._validation_token = _M2_VALIDATION_TOKEN
-        validated._validated_plan_digest = _plan_digest(task_plan)
-        return validated
-
     def is_m2_validated(self) -> bool:
-        return self._validation_token is _M2_VALIDATION_TOKEN
+        return _validated_intent_is_m2_validated(self)
 
     def is_bound_to_plan(self, task_plan) -> bool:
         return (

@@ -12,11 +12,12 @@ from app.permissions.policies import (
 )
 
 
-def read_scope():
+def read_scope(resource_id="report.pdf"):
     return PermissionScope(
         resource_type=ResourceType.FILE,
         kind=PermissionScopeKind.TASK,
         selector="current_task.resource",
+        resource_id=resource_id,
     )
 
 
@@ -48,6 +49,7 @@ def evaluate_read(**overrides):
         "resource_type": ResourceType.FILE,
         "scope": read_scope(),
         "parameters": {"mode": "read"},
+        "resource": "report.pdf",
     }
     values.update(overrides)
     return PermissionEvaluator().evaluate(**values)
@@ -69,6 +71,7 @@ def test_policy_deny_is_respected():
         resource_type=ResourceType.FILE,
         scope=read_scope(),
         parameters={"mode": "read"},
+        resource="report.pdf",
     )
 
     assert result == PermissionDecision.DENY
@@ -100,6 +103,7 @@ def test_missing_policy_is_denied():
         resource_type=ResourceType.FILE,
         scope=read_scope(),
         parameters={"mode": "read"},
+        resource="report.pdf",
     )
 
     assert result == PermissionDecision.DENY
@@ -117,6 +121,7 @@ def test_invalid_policy_provider_is_denied():
         resource_type=ResourceType.FILE,
         scope=read_scope(),
         parameters={"mode": "read"},
+        resource="report.pdf",
     )
 
     assert result == PermissionDecision.DENY
@@ -140,6 +145,7 @@ def test_scope_outside_policy_is_denied():
         resource_type=ResourceType.FILE,
         kind=PermissionScopeKind.RESOURCE,
         selector="other_task.resource",
+        resource_id="report.pdf",
     )
 
     assert evaluate_read(scope=outside_scope) == PermissionDecision.DENY
@@ -147,6 +153,29 @@ def test_scope_outside_policy_is_denied():
 
 def test_missing_scope_is_denied():
     assert evaluate_read(scope=None) == PermissionDecision.DENY
+
+
+def test_missing_resource_id_is_denied():
+    scope_without_resource = PermissionScope(
+        resource_type=ResourceType.FILE,
+        kind=PermissionScopeKind.TASK,
+        selector="current_task.resource",
+    )
+
+    assert evaluate_read(scope=scope_without_resource) == PermissionDecision.DENY
+
+
+def test_different_resource_id_is_denied():
+    assert evaluate_read(scope=read_scope("secret.pdf"), resource="report.pdf") == PermissionDecision.DENY
+
+
+def test_exact_resource_match_allows():
+    assert evaluate_read(scope=read_scope("report.pdf"), resource="report.pdf") == PermissionDecision.ALLOW
+
+
+def test_resource_substitution_in_scope_is_denied():
+    assert evaluate_read(scope=read_scope("other.pdf"), resource="other.pdf") == PermissionDecision.ALLOW
+    assert evaluate_read(scope=read_scope("other.pdf"), resource="report.pdf") == PermissionDecision.DENY
 
 
 def test_wrong_agent_is_denied():
@@ -200,6 +229,7 @@ def test_evaluator_does_not_execute_operations_or_modify_policy():
         resource_type=ResourceType.FILE,
         scope=read_scope(),
         parameters={"mode": "read"},
+        resource="report.pdf",
     )
     after = policy_registry.get("permission.file.read")
     assert before == after

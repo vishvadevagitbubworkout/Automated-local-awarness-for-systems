@@ -9,7 +9,23 @@ from app.permissions.evaluator import PermissionEvaluator
 from app.permissions.policies import PermissionDecision, PermissionScope
 from app.planner.schemas import TaskPlan
 
-_AUTHORIZATION_TOKEN = object()
+
+def _create_authorization_trust_boundary():
+    """Closure-scoped issuance authority for M4 authorization results."""
+    _integrity_token = object()
+
+    def issue(**values) -> "AuthorizationResult":
+        result = AuthorizationResult(**values)
+        result._integrity_token = _integrity_token
+        return result
+
+    def is_integrity_valid(result: "AuthorizationResult") -> bool:
+        return getattr(result, "_integrity_token", None) is _integrity_token
+
+    return issue, is_integrity_valid
+
+
+_issue_authorization, _authorization_is_integrity_valid = _create_authorization_trust_boundary()
 
 
 class AuthorizationResult(BaseModel):
@@ -25,14 +41,8 @@ class AuthorizationResult(BaseModel):
     reason: str = Field(..., min_length=1)
     _integrity_token: object | None = PrivateAttr(default=None)
 
-    @classmethod
-    def _from_manager(cls, **values) -> "AuthorizationResult":
-        result = cls(**values)
-        result._integrity_token = _AUTHORIZATION_TOKEN
-        return result
-
     def is_integrity_valid(self) -> bool:
-        return self._integrity_token is _AUTHORIZATION_TOKEN
+        return _authorization_is_integrity_valid(self)
 
     def model_copy(self, *, update=None, deep=False):
         if update:
@@ -95,6 +105,7 @@ class TaskAuthorizationManager:
                 resource_type=capability.resource_type,
                 scope=scope,
                 parameters=step.parameters,
+                resource=step.resource,
             )
         except (CapabilityRegistryError, TypeError, ValueError, AttributeError) as error:
             return self._deny(
@@ -105,7 +116,7 @@ class TaskAuthorizationManager:
             )
 
         if decision == PermissionDecision.ALLOW:
-            return AuthorizationResult._from_manager(
+            return _issue_authorization(
                 task_id=task_id,
                 step_id=step_id,
                 capability_id=capability.capability_id,
@@ -140,7 +151,7 @@ class TaskAuthorizationManager:
         scope: PermissionScope | None,
         reason: str,
     ) -> AuthorizationResult:
-        return AuthorizationResult._from_manager(
+        return _issue_authorization(
             task_id=task_id,
             step_id=step_id if isinstance(step_id, str) else None,
             capability_id=None,

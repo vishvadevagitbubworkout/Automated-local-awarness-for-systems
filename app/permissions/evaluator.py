@@ -31,6 +31,7 @@ class PermissionEvaluator:
         resource_type,
         scope: PermissionScope | None,
         parameters: dict | None = None,
+        resource: str | None = None,
     ) -> PermissionDecision:
         """Return ALLOW only when every authorization input matches policy."""
         try:
@@ -57,6 +58,15 @@ class PermissionEvaluator:
                 scope.resource_type != policy.scope.resource_type
                 or scope.kind != policy.scope.kind
                 or scope.selector != policy.scope.selector
+            ):
+                return PermissionDecision.DENY
+            if scope.resource_id is None or not isinstance(scope.resource_id, str):
+                return PermissionDecision.DENY
+            if resource is not None and scope.resource_id != resource:
+                return PermissionDecision.DENY
+            if (
+                policy.scope.resource_id is not None
+                and scope.resource_id != policy.scope.resource_id
             ):
                 return PermissionDecision.DENY
             if requested_parameters != canonical.parameters:

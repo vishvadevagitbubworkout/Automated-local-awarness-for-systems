@@ -2,7 +2,7 @@ import re
 
 from app.intent.parsing import parse_intent_result
 from app.intent.prompts import build_intent_prompt
-from app.intent.schemas import IntentCheckResult, ValidatedIntentResult, _M2_ISSUER
+from app.intent.schemas import IntentCheckResult, ValidatedIntentResult, _issue_validated_intent
 from app.planner.ollama_client import OllamaClient
 from app.planner.schemas import PlannerIntent, TaskPlan
 
@@ -72,7 +72,7 @@ def _deterministic_contract_mismatches(task_plan: TaskPlan) -> list[str]:
 
 
 def _validated(result: IntentCheckResult, task_plan: TaskPlan) -> ValidatedIntentResult:
-    return ValidatedIntentResult._from_validator(result, task_plan, _M2_ISSUER)
+    return _issue_validated_intent(result, task_plan)
 
 
 class IntentValidator:
@@ -81,7 +81,7 @@ class IntentValidator:
     def __init__(self, ollama_client: OllamaClient | None = None):
         self.ollama_client = ollama_client or OllamaClient()
 
-    def validate(self, task_plan: TaskPlan) -> IntentCheckResult:
+    def validate(self, task_plan: TaskPlan) -> ValidatedIntentResult:
         if not isinstance(task_plan, TaskPlan):
             raise TypeError("IntentValidator.validate expects a TaskPlan.")
         if not task_plan.task_id.strip():
